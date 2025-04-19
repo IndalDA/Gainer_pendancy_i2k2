@@ -2,3 +2,5 @@ pandas
 pyodbc
 streamlit
 xlsxwriter
+openpyxl
+pathlib
