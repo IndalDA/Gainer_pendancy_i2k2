@@ -1,188 +1,30 @@
-import streamlit as st
-import pandas as pd
+import os
 import pyodbc
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-import smtplib
+import time
+import openpyxl
+import pandas as pd
 from io import BytesIO
+import streamlit as st 
+from datetime import datetime
+from  openpyxl import load_workbook
+from openpyxl.styles import Alignment
+from openpyxl.styles import Font
+from openpyxl.styles import PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Alignment, Font, Border, Side
+from openpyxl.styles.borders import BORDER_THIN
+from openpyxl.styles.alignment import Alignment
+from openpyxl.formatting.rule import DataBarRule
+from openpyxl.styles.colors import Color
 
-st.title("Gainer Pendancy Automailer")
-
-def get_db_connection():
-    return pyodbc.connect(
-        r'DRIVER={ODBC Driver 17 for SQL Server};'
-        r'SERVER=10.10.152.16;'
-        r'DATABASE=z_scope;'
-        r'UID=Utkrishtsa;'
-        r'PWD=AsknSDV*3h9*RFhkR9j73;'
-    )
-
-conn = get_db_connection()
-
-# Fetching dropdown data
-# Brand Dropdown
-brnd = pd.read_sql_query("SELECT vcbrand FROM brand_master", conn)
-brand_list = ["Select Brand"] + brnd['vcbrand'].tolist()
-brand = st.selectbox(label="Brand", options=brand_list)
-
-#brnadid
-try:
-    bigid =pd.read_sql_query("""select bigid from Brand_Master where vcbrand=?""",conn,params=(brand))
-    brandid = bigid.iloc[0][0]
-#    st.write(brandid)
-except:
-    pass    
-
-# Dealer Dropdown
-dealer = pd.read_sql_query("SELECT distinct Dealer FROM locationinfo WHERE brand=?", conn, params=(brand,))
-dealer_list = ["Select Dealer"] + dealer['Dealer'].tolist()
-Dealer = st.selectbox(label="Select Dealer", options=dealer_list)
-
-# Location Dropdown
-location = pd.read_sql_query("SELECT distinct Location FROM locationinfo WHERE brand=? and Dealer=?", conn, params=(brand, Dealer))
-location_list = ["Select Location"] + location['Location'].tolist()
-Location = st.selectbox(label="Select Location", options=location_list)
-
-# File Uploader for Email List
-#Mail_list = st.file_uploader("Upload Mail list", type='xlsx')
-
-# Execute SQL Procedure and Load Data
+#connection for db
+conn = pyodbc.connect(
+    r'DRIVER={ODBC Driver 17 for SQL Server};'
+    r'SERVER=103.234.185.132,2499;'
+    r'DATABASE=Z_SCOPE;'
+    r'UID=Utkrishtsa;'
+    r'PWD=AsknSDV*3h9*RFhkR9j73;')
 cursor = conn.cursor()
-# Function to send mail
-def Mail(brand):
-    cursor.execute("exec UAD_Gainer_Pendency_Report_LS")
-    df = pd.read_sql("""
-    SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
-    CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
-    Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
-    ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
-    ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
-    (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
-    ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
-    FROM (
-        SELECT TBL.brand, TBL.Dealer, TBL.Dealer_Location, tbl.Co_Dealer, tbl.Co_dealer_Location, 
-        TBL.STAGE, TBL.responcbucket, SUM(tbl.ordervalue) AS ORDERVALUE
-        FROM (
-            SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
-            Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
-            CASE
-                WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
-                WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
-                WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
-                WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
-                WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
-                ELSE '>4 days'
-            END AS responcbucket,
-            CASE 
-                WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
-                ELSE POQty * (100 - DISCOUNT) * MRP / 100
-            END AS ordervalue
-            FROM gainer_pendency_report_test_1
-            WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' and brand=?
-        ) AS TBL
-        GROUP BY TBL.brand, TBL.Dealer, TBL.Dealer_Location, TBL.STAGE, TBL.responcbucket, Co_Dealer, Co_dealer_Location
-    ) AS TBL2
-    PIVOT (
-        SUM(TBL2.ORDERVALUE) FOR TBL2.responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
-    ) AS TB
-    WHERE Stage <> 'PO Awaited'
-""", conn,params=(brand,))
-    #Mail_df = pd.read_excel(r'C:\Users\Admin\Downloads\Book1.xlsx')
-    Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
-    #Mail_df = pd.read_excel(Mail_list)
-    Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-    df['Unque_Dealer'] = df['Brand'] + "_" + df['Dealer to Take Action']
-    df['1-2 days>0']  = (df['5-9 hrs']+df['1-2 days']+df['2-4 days']+df['>4 days'])
-    Greater_than_zero =   df[df['1-2 days>0']>0]
-    merge_df = Greater_than_zero.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
-    #merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
-    Unique_Dealer = merge_df['Unque_Dealer'].unique()
-    for dealer in Unique_Dealer:
-        filtered_df = merge_df[merge_df['unique_dealer'] == dealer]
-        ds = filtered_df[filtered_df['Unque_Dealer']== dealer][['Dealer to Take Action','Co-Dealer', 'Stage',
-        '0-2 hrs', '2-5 hrs', '5-9 hrs', '1-2 days', '2-4 days', '>4 days','Total']]
-        
-        #sub = filtered_df['Buyer_Dealer'].values+"_"+filtered_df['Buyer_Location'].values
-        #s = "Own Arrangement shipment-"+str(sub).replace("['",'').replace("']",'')
-        #subject = str(s)
-
-        html_table = ds.to_html(index=False, border=1, justify='center')
-        if filtered_df.empty:
-            print(f"No data found for dealer: {dealer}")
-            continue
-        to_email = filtered_df['To'].iloc[0] 
-        cc_emails = filtered_df['CC'].iloc[0]
-        cc_emails = cc_emails.replace(' ', '')  
-        cc_email_list = cc_emails.split(';') if cc_emails else []
-        all_recipients = [to_email] + cc_email_list
-        print(f"Sending email to: {dealer,all_recipients}")
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Response required on Pending Orders_"+dealer
-        #msg["From"] = "scsit.db2@sparecare.in"
-        msg["From"] = "gainer.alerts@sparecare.in"
-        msg["To"]=to_email
-        #msg['Cc'] = ','.join(cc_emails)
-        msg['Cc']=cc_emails
-
-        #['hanish.khattar@sparecare.in','manish.sharma@sparecare.in','scope@sparecare.in']
-        #"idas98728@gmail.com"
-
-        html_content = f"""
-        <html>
-        <head>
-        <style>
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-            text-align: center;
-        }}
-        th, td {{
-            border: 1px solid black;
-            padding: 8px;
-        }}
-        th {{
-            background-color: #33ffda;
-        }}
-        body, p, th, td {{
-            color: black; }}
-
-        </style>
-        </head>
-        <body>
-        <p style="font-family: 'Calibri', Times, serif;">Dear Sir,</p>
-        <p style="font-family: 'Calibri', Times, serif;">Greetings !! </p>
-        <p style="font-family: 'Calibri', Times, serif;">As per current transactions status,
-        following Orders are showing pending for long time at your dealership.
-        </p>
-
-        {html_table}
-
-        <p style="font-family: 'Calibri', Times, serif;">Kindly check & take action at the earliest. Delay in response will affect your <b>RANKING AS SELLER</b> and result in Lesser Liquidation of Non Moving Parts.
-        </p>
-        <p style ="font-family:'Calibri',Times,serif;">For any issue/support required, please write mail to <b>gainer.support@sparecare.in</b></p>
-        <p style="font-family: 'Calibri', Times, serif;">Warm Regards,<br>Gainer Team</p>
-        
-        <p style="font-family: 'Calibri', Times, serif;">This is system generated mail, please do not reply.</p>
-
-
-        </body>
-        </html>
-
-        """
-        msg.attach(MIMEText(html_content, "html"))
-
-        # Send the email
-        try:
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                server.starttls()
-                server.login('gainer.alerts@sparecare.in', 'fmyclggqzrmkykol')
-                server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
-            print("Email sent successfully!")
-        except Exception as e:
-            print(f"Error: {e}")
-
-    st.success("Emails sent successfully!")
 
 # Function to convert DataFrame to Excel
 def to_excel(df):
@@ -195,411 +37,430 @@ def to_excel(df):
         worksheet.set_column('A:A', None, format1)
     return output.getvalue()
 
-# Buttons for downloading data and sending mail
-col1, col2,col3 = st.columns(3)
 
-with col1:
-    if st.button('📊 Generate Pendancy Data'):
-        cursor.execute("exec UAD_Gainer_Pendency_Report_LS")    
-        df = pd.read_sql("""
-        SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
-        CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
-        Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
-        ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
-        ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
-        (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
-        ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
-        FROM (
-            SELECT TBL.brand, TBL.Dealer, TBL.Dealer_Location, tbl.Co_Dealer, tbl.Co_dealer_Location, 
-            TBL.STAGE, TBL.responcbucket, SUM(tbl.ordervalue) AS ORDERVALUE
-            FROM (
-                SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
-                Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
-                CASE
-                    WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
-                    WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
-                    WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
-                    WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
-                    WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
-                    ELSE '>4 days'
-                END AS responcbucket,
-                CASE 
-                    WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
-                    ELSE POQty * (100 - DISCOUNT) * MRP / 100
-                END AS ordervalue
-                FROM gainer_pendency_report_test_1
-                WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' and brand=?
-            ) AS TBL
-            GROUP BY TBL.brand, TBL.Dealer, TBL.Dealer_Location, TBL.STAGE, TBL.responcbucket, Co_Dealer, Co_dealer_Location
-        ) AS TBL2
-        PIVOT (
-            SUM(TBL2.ORDERVALUE) FOR TBL2.responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
-        ) AS TB
-        WHERE Stage <> 'PO Awaited'
-    """, conn,params=(brand,))
-        df_xlsx = to_excel(df)
-        st.download_button(
-            label="📥 Download Excel File",
-            data=df_xlsx,
-            file_name=f"{brand}_Pendency_Report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+# Set page title and icon
+st.set_page_config(page_title="Buying Potential Automailer", page_icon="📧")
 
-#own arrangement
-
-def Own_arrangement_Mail(brandid):
-  import pandas as pd
- # from tabulate import tabulate
-  from email.mime.multipart import MIMEMultipart
-  from email.mime.text import MIMEText
-  import smtplib
-  import pyodbc
-
-  conn = pyodbc.connect(
-      r'DRIVER={ODBC Driver 17 for SQL Server};'
-      r'SERVER=10.10.152.16;'
-      r'DATABASE=z_scope;'
-      r'UID=Utkrishtsa;'
-      r'PWD=AsknSDV*3h9*RFhkR9j73;')
-  cursor = conn.cursor()
-
-  df = pd.read_sql("""
-  select distinct b.Brand ,
-  c.Dealer Buyer_Dealer,c.Location as Buyer_Location,a.DispatchOrderNo,b.Dealer SellerDealer,
-  b.Location SellerLocation,d.lrnumber,format(a.DISPATCHDATE,'dd-MMM-yyy') DISPATCHDATE,format(d.LRDate,'dd-MMM-yyy') LRDate,
-  d.TransporterName,f.InvoiceNumber,f.InvoiceAmount,DATEDIFF(DAY,LRDate,GETDATE()) AgeingDays
-  from SH_PartTransaction  a
-  Inner join locationinfo b on a.sellerlocation=b.locationid
-  Inner join locationinfo c on a.BUYERLOCATION=c.locationid
-  inner join SH_DispatchDetail  d on a.DispatchOrderNo=d.DispatchOrderNo
-  inner join SH_DispatchInvoiceDetail f on a.DispatchOrderNo=f.DispatchOrderNo
-  --left join CompanyMaster    e on d.CompanyCode=e.CompanyCode
-  where d.CompanyCode=3 and PARTNUMBER is not null and a.RECEIVEDATE is null
-  and c.BrandID=? and DISPATCHDATE <= DATEADD(day,-5,getdate()) and b.Dealer not like '%Test%' and b.DealerID<>c.DealerID
-  """,conn,params=(brandid,))
-
-  # MAIL
-#  Mail_df = pd.read_excel(r'C:\Users\Admin\Downloads\Book1.xlsx')
-  Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
-  Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-  df['Unque_Dealer'] = df['Brand']+"_"+df['Buyer_Dealer']+"_"+df['Buyer_Location']
-  merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
-
-  Unique_Dealer = merge_df['Unque_Dealer'].unique()
-
-  sent_df =  merge_df[['SellerDealer','SellerLocation','InvoiceNumber','InvoiceAmount','DISPATCHDATE','lrnumber','TransporterName']]
-  sent_df.rename(columns={'SellerDealer':'Seller Name','SellerLocation':'Seller Location','InvoiceNumber':'Invoice Number','InvoiceAmount':'Invoice Value',
-                          'DISPATCHDATE':'Shipment Date','lrnumber':'LR/AWB No','TransporterName':'Courier Name'},inplace=True)
-
-  for dealer in Unique_Dealer:
-      #dealer = 'TATA PCBU_AKAR FOURWHEEL_Jaipur_RAJ'
-      filtered_df = merge_df[merge_df['unique_dealer'] == dealer]
-      #sent_df =  filtered_df[['SellerDealer','SellerLocation','InvoiceNumber','InvoiceAmount','DISPATCHDATE','lrnumber','CompanyName']]
-      filtered_df.rename(columns={'SellerDealer':'Seller Name','SellerLocation':'Seller Location','InvoiceNumber':'Invoice Number','InvoiceAmount':'Invoice Value',
-                          'DISPATCHDATE':'Shipment Date','lrnumber':'LR/AWB No','TransporterName':'Courier Name'},inplace=True)
-        
-      ds = filtered_df[filtered_df['Unque_Dealer']== dealer][['Seller Name','Seller Location', 'Invoice Number',
-        'Invoice Value', 'Shipment Date', 'LR/AWB No', 'Courier Name']]
-      html_table = ds.to_html(index=False, border=1, justify='center')
-      sub = filtered_df['Buyer_Dealer'].values+"_"+filtered_df['Buyer_Location'].values
-      sub = pd.unique(sub)
-      s = "Pending Receipt : "+str(sub).replace("['",'').replace("']",'')
-      subject = str(s)
-    # subject  = "Pending for Receipt Own Arrangement shipment -" +sub
-
-      if filtered_df.empty:
-          print(f"No data found for dealer: {dealer}")
-          continue
-      to_email =to_email = filtered_df['To'].iloc[0] 
-      cc_emails =cc_emails = filtered_df['CC'].iloc[0]
-      #['hanish.khattar@sparecare.in','manish.sharma@sparecare.in','scope@sparecare.in'] 
-      #['scsit.db2@sparecare.in','massage2indal@gmail.com','scope@sparecare.in','manish.sharma@sparecare.in','']
-      cc_emails = cc_emails.replace(' ', '')  
-      cc_email_list = cc_emails.split(';') if cc_emails else []
-      all_recipients = [to_email] + cc_email_list
-      print(f"Sending email to: {dealer,all_recipients}")
-      msg = MIMEMultipart("alternative")
-      msg["Subject"] =subject 
-      #"Own Arrangement shipment -"+sub
-      msg["From"] = "gainer.alerts@sparecare.in"
-      #msg["From"] = "scsit.db2@sparecare.in"
-      #msg["To"] = "idas98728@gmail.com"
-      msg["To"]=to_email
-      msg['Cc']=cc_emails  
-    
-
-      html_content = f"""
-      <html>
-      <head>
-      <style>
-      table {{
-          border-collapse: collapse;
-          width: 100%;
-          text-align: center;
-      }}
-      th, td {{
-          border: 1px solid black;
-          padding: 8px;
-      }}
-      th {{
-          background-color: #33ffda;
-      }}
-      body, p, th, td {{
-          color: black; }}
-
-      </style>
-      </head>
-      <body>
-      <p style="font-family: 'Calibri', Times, serif;">Dear Sir,</p>
-      <p style="font-family: 'Calibri', Times, serif;">Greetings !! </p>
-      <p style="font-family: 'Calibri', Times, serif;">Following shipments are sent by Selling Dealer via Own Arrangement is <b>“Pending for Receiving”</b> in Sparecare Gainer Portal.</p>
-
-      {html_table}
-
-      <p style="font-family: 'Calibri', Times, serif;">It is requested to kindly receive these parts in Gainer Portal.</p>
-      <p style ="font-family:'Calibri',Times,serif;">In case shipment not received, kindly write mail to gainer.support@sparecare.in</p>
-      <p style="font-family: 'Calibri', Times, serif;">Warm Regards,<br>Gainer Team</p>
-
-      <p style="font-family: 'Calibri', Times, serif;">This is system generated mail, please do not reply.</p>
-      
-
-
-      </body>
-      </html>
-
-      """
-      msg.attach(MIMEText(html_content, "html"))
-
-      # Send the email
-      try:
-          with smtplib.SMTP("smtp.gmail.com", 587) as server:
-              server.starttls()
-              server.login('gainer.alerts@sparecare.in', 'fmyclggqzrmkykol')
-              server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
-          print("Email sent successfully!")
-      except Exception as e:
-          print(f"Error: {e}")
-      st.success("Emails sent successfully!")
-  
-# stock update 
-
-def stock_update_Mail(brandid):
-    import pandas as pd
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    import smtplib
-    import pyodbc
-
-    conn = pyodbc.connect(
-      r'DRIVER={ODBC Driver 17 for SQL Server};'
-      r'SERVER=10.10.152.16;'
-      r'DATABASE=z_scope;'
-      r'UID=Utkrishtsa;'
-      r'PWD=AsknSDV*3h9*RFhkR9j73;')
-   
-    cursor = conn.cursor()
-    df = pd.read_sql("""
-        select * from (
-            select distinct c.brand, c.dealer, c.location, c.DealerID, c.LocationID, 
-                   format(a.stockdate, 'dd-MMM-yy') stockdate,
-                   DATEDIFF(day, CAST(a.stockdate as date), CAST(getdate() as date)) Day_Difference
-            from CurrentStock1 a 
-            inner join CurrentStock2 b on a.tcode = b.stockcode
-            inner join LocationInfo c on a.LocationID = c.LocationID
-            WHERE c.Status = 1 and c.SharingStatus = 1 and c.BrandID = ?) as tbl
-        where tbl.Day_Difference >= 5
-    """, conn, params=(brandid,))
-
-    # Read email details
-    Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=997145252&single=true&output=csv')
-    Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-    df['Unque_Dealer'] = df['brand'] + "_" + df['dealer'] + "_" + df['location']
-
-    merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
-    merge_df['Stock_filter']=merge_df['brand']+'_'+merge_df['dealer']
-    Unique_Dealer = merge_df['Stock_filter'].unique()
-
-    for dealer in Unique_Dealer:
-        filtered_df = merge_df[merge_df['Stock_filter'] == dealer]
-        filtered_df.rename(columns={'dealer': 'Dealer Name', 'location': 'Dealer Location', 'stockdate': 'Last Stock Update Date'}, inplace=True)
-
-        ds = filtered_df[filtered_df['Stock_filter'] == dealer][['Dealer Name', 'Dealer Location', 'Last Stock Update Date']]
-        html_table = ds.to_html(index=False, border=1, justify='center')
-       # sub = filtered_df['Dealer Name'].values + "_" + filtered_df['Dealer Location'].values
-        sub = filtered_df['Dealer Name'].unique()
-        subject = "Stock Update Status - " + str(sub).replace("['", '').replace("']", '')
-
-        if filtered_df.empty:
-            print(f"No data found for dealer: {dealer}")
-            continue
-        email_set_to = set()
-        for email_string in filtered_df['To'].dropna():
-            emails = email_string.split(';')
-            cleaned_emails = {email.strip() for email in emails}
-            email_set_to.update(cleaned_emails)
-        unique_email_list_to = sorted(email_set_to)
-        
-        email_set_CC = set()
-        for email_string in filtered_df['CC'].dropna():
-            emails = email_string.split(';')
-            cleaned_emails = {email.strip() for email in emails}
-            email_set_CC.update(cleaned_emails)
-        unique_email_list_cc = sorted(email_set_CC)
-        
-        #all_recipients = [unique_email_list_to] + [unique_email_list_cc]
-        #print(f"Sending email to: {dealer,all_recipients}")
-            # Flatten recipient lists
-        all_recipients = unique_email_list_to + unique_email_list_cc
-
-        print(f"Sending email to: {dealer}, {all_recipients}")
-
-        to_email = ", ".join(unique_email_list_to)
-        cc_emails = ", ".join(unique_email_list_cc)
-
-        
-       # to_email = filtered_df['To'].iloc[0]
-        #cc_emails = filtered_df['CC'].iloc[0].replace(' ', '')
-        #cc_email_list = cc_emails.split(';') if cc_emails else []
-
-        # to_email = filtered_df['To'].iloc[0] 
-        # cc_emails = filtered_df['CC'].iloc[0]
-        # cc_emails = cc_emails.replace(' ', '')  
-        # cc_email_list = cc_emails.split(';') if cc_emails else []
-        # all_recipients = [to_email] + cc_email_list
-        #print(f"Sending email to: {dealer, all_recipients}")
-        #to_email = unique_email_list_to
-        #cc_emails = unique_email_list_cc
-        
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = "gainer.alerts@sparecare.in"
-        msg["To"] = to_email
-        msg['Cc'] = cc_emails
-
-        html_content = f"""
-        <html>
-        <head>
-        <style>
-        table {{
-            border-collapse: collapse;
-            width: auto;
-            table-layout: auto;
-            text-align: center;
-        }}
-        th, td {{
-            border: 1px solid black;
-            padding: 4px;
-            word-wrap: break-word;
-        }}
-        th {{
-            background-color: #33ffda;
-        }}
-        body, p, th, td {{
-            color: black;
-        }}
-        </style>
-        </head>
-        <body>
-        <p style="font-family: 'Calibri', Times, serif;">Dear Sir,</p>
-        <p style="font-family: 'Calibri', Times, serif;">Greetings !!</p>
-        <p style="font-family: 'Calibri', Times, serif;">In Sparecare Gainer Portal, Current Spare Parts Stock of below mentioned location is not updated from Last 5 days.</p>
-        <p style="font-family: 'Calibri', Times, serif;">It may increase Order Rejections from your dealership and will affect future orders.</p>
-
-        {html_table}
-
-        <p style="font-family: 'Calibri', Times, serif;">Request to kindly update the Current Stock in Gainer Portal on Priority.</p>
-        <p style="font-family: 'Calibri', Times, serif;">For any issue/support required, please mail on <b>gainer.suport@sparecare.in</b></p>
-        <p style="font-family: 'Calibri', Times, serif;">Warm Regards,<br>Gainer Team</p>
-        <p style="font-family: 'Calibri', Times, serif;">Note: This is system generated mail, pl do not reply.</p>
-        </body>
-        </html>
+#Backgound 
+def set_bg_color():
+    st.markdown(
         """
-        msg.attach(MIMEText(html_content, "html"))
+        <style>
+        .stApp {
+            background-color:#00BFBF ;  /* Light Blue */
+            
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
+# Call the function to set the background color
+set_bg_color()
+
+
+st.header('Buying Potential Automailer', divider="green")
+
+loc_df = pd.read_sql_query('''select  a.Brand,a.Dealer,a.Location,concat(a.Brand,'_',a.dealer,'_',a.location) as select_location ,a.BrandID,a.DealerID,a.LocationID,
+case when b.Consignee_Type='c' then 'Child'
+when b.Consignee_Type='s' then 'Single'
+when b.Consignee_Type='M' then 'Mother' end Consignee_Type
+From locationinfo a
+inner join Dealer_Setting_Master b on a.LocationID=b.locationid
+where a.SharingStatus=1 and b.status=1 and ConsigneeType is not null
+  and a.brandid in ('9','11','32','28')''',conn)
+
+# Brand Dropdown
+brnd = loc_df['Brand'].unique()
+brand_list = ["Select Brand"] + brnd.tolist()
+brand = st.selectbox(label="Brand", options=brand_list)
+
+
+# Fetch dealer data based on selected brand
+if brand:
+    dealer = loc_df[loc_df['Brand']==brand]['Dealer'].unique()
+    dealer_list = dealer.tolist()
+    Dealer = st.multiselect("Select Dealer", options=dealer_list)
+else:
+    Dealer = []
+
+col1,col2,col3,col4 = st.columns(4)
+with col1:
+    single = st.checkbox('Single')
+with col2:    
+    child = st.checkbox('Child')
+with col3:    
+    mother = st.checkbox('Mother')
+with col4:
+    All = st.checkbox('All')
+
+
+# Show which options are selected
+selected_types = []
+if single:
+    selected_types.append('Single')
+if child:
+    selected_types.append('Child')
+if mother:
+    selected_types.append('Mother')
+
+
+# selected options
+if selected_types:
+    st.write(f"Selected options: {', '.join(selected_types)}")
+else:
+    st.write("No options selected")
+
+# based on checkboxes
+if selected_types:
+    filtered_df =loc_df[loc_df['Consignee_Type'].isin(selected_types)]
+else:
+    filtered_df = loc_df  
+
+#location data based on selected brand and dealers 
+if brand != "Select Brand" and Dealer:
+  
+    filtered_df = filtered_df[filtered_df['Brand'] == brand]
+    filtered_df = filtered_df[filtered_df['Dealer'].isin(Dealer)]  
+    # selected brand, dealer, and consignee type
+    location_list = filtered_df['select_location'].tolist()
+    Location = st.multiselect("Location", options=location_list)
+else:
+    Location = []
+
+
+
+
+
+#Parameter Based on Brand
+if brand =="JCB":
+    brandid = 32
+    MinDis = 25
+    OEM_Avg_Margin =18
+    GST = float(0.18)
+    Q1 = float(0.63)
+    Q2 = float(0.83)
+elif brand=="Mahindra":
+    brandid = 9
+    MinDis = 25
+    OEM_Avg_Margin = 23
+    GST = float(0.28)
+    Q1 = float(0.63)
+    Q2 = float(0.83)
+elif brand=="TATA PCBU":
+    brandid = 28
+    MinDis = 25
+    OEM_Avg_Margin = 23
+    GST = float(0.28)
+    Q1 = float(0.63)
+    Q2 = float(0.83)
+elif brand=='Hyundai':
+    brandid = 11
+    MinDis = 20
+    OEM_Avg_Margin = 17
+    GST = float(28)
+    Q1 = float(0.63)
+    Q2 = float(0.83)
+
+if brand!="Select Brand":
+        parameter = {'Brand':brand,'Minimum Discount':MinDis,'Oem Avg Margin':OEM_Avg_Margin,
+                    'Gst':GST,'[Rate/MRP greater than]':Q1,'[Rate/MRP Less than]':Q2
+                    }
+        
+#tabs craetion
+#tab1, tab2, tab3, tab4 = st.tabs(['Parameter', 'Show_selection', 'Generate_Report', 'Mailsent'])
+tab1, tab2, tab3, tab4,tab5 = st.tabs(['Parameter', 'Show_selection', 'Generate_Report','Summmary', 'Mailsent'])
+
+#tab1, tab2, tab3, tab4,tab5 = st.tabs(['Parameter', 'Show_selection', 'Generate_Report','Summmary', 'Mailsent'])
+
+# Tab 1: Parameter
+with tab1:
+    if brand != "Select Brand" and st.button(label="Click Here To Check Parameter", key=1):
+        st.dataframe(pd.DataFrame(parameter, index=[0]))
+    elif brand == "Select Brand" and st.button(label="Click Here To Check Parameter", key=1):
+        st.warning('Select Brand')
+
+# Tab 2: Show Selection
+with tab2:
+    if brand and Dealer and Location:
         try:
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                server.starttls()
-                server.login('gainer.alerts@sparecare.in', 'fmyclggqzrmkykol')
-                server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
-            print("Email sent successfully!")
-            st.success("Emails sent successfully!")    
+           
+            Selected_df =loc_df[loc_df['select_location'].isin(Location)][['Brand','Dealer','Location','BrandID','DealerID','LocationID']]
+            st.table(Selected_df)
         except Exception as e:
-            print(f"Error: {e}")
-        st.success("Emails sent successfully!"+subject)    
+            st.error(f"Database error: {e}")
+    else:
+        st.warning('Error: Select Brand, Dealer, and Location!')
 
+# Tab 3: Generate Report
+with tab3:
+    if brand and Dealer and Location:
+        if st.button('Generate Report', key=2):
+            #st.success("Report generated successfully!")
+            for brndid,dlr,locid,brd,dlrn,locn in zip(Selected_df['BrandID'],Selected_df['DealerID'],Selected_df['LocationID'],
+                                    Selected_df['Brand'],Selected_df['Dealer'],Selected_df['Location']):
+                cursor.execute("exec USP_BuyingPotential_For_Automation1 ?,?,?,?,?,?", (brndid, dlr, locid, '1000', MinDis, '2'))
+                conn.commit()
+                gen_df = pd.read_sql_query('''select *from Uad_BuyingPotential_Automation where locationid = ?''',conn,params=(locid))
 
+                st.success(f'Report Generate for : brand :{brd},Dealer :{dlrn},Location : {locn}')
+        else:
+            st.warning('Error: Select Brand, Dealer, and Location!')
 
-
-
-
-
-
-with col2:
-    st.link_button(label="⌨ Google Mail List",url="https://docs.google.com/spreadsheets/d/1UO5pF3yKaYemf-s3YKK62yjbT0zdG4EjTUmlzcQHT00/edit?gid=1610467454#gid=1610467454")
-with col3:
-    if st.button('📧 Send Mail'):
-        #Mail(brand)
-         Mail(brand)   
-with col2:
-    if st.button("Sent own arrangement mail"):
-        brandid = str(brandid)    
-        Own_arrangement_Mail(brandid)    
-with col1:
-     if st.button('📥 Generate Own Arrangement Report'):
-        brandid = str(brandid) 
-        df = pd.read_sql("""
-            select distinct b.Brand ,
-            c.Dealer Buyer_Dealer,c.Location as Buyer_Location,a.DispatchOrderNo,b.Dealer SellerDealer,
-            b.Location SellerLocation,d.lrnumber,format(a.DISPATCHDATE,'dd-MMM-yyy') DISPATCHDATE,format(d.LRDate,'dd-MMM-yyy') LRDate,
-            d.TransporterName,f.InvoiceNumber,f.InvoiceAmount,DATEDIFF(DAY,LRDate,GETDATE()) AgeingDays
-        from SH_PartTransaction  a
-        Inner join locationinfo b on a.sellerlocation=b.locationid
-        Inner join locationinfo c on a.BUYERLOCATION=c.locationid
-        inner join SH_DispatchDetail  d on a.DispatchOrderNo=d.DispatchOrderNo
-        inner join SH_DispatchInvoiceDetail f on a.DispatchOrderNo=f.DispatchOrderNo
-        --left join CompanyMaster    e on d.CompanyCode=e.CompanyCode
-        where d.CompanyCode=3 and PARTNUMBER is not null and a.RECEIVEDATE is null
-        and c.BrandID=? and DISPATCHDATE <= DATEADD(day,-5,getdate()) and b.Dealer not like '%Test%'  and b.DealerID<>c.DealerID
-        """,conn,params=(brandid,)) 
-                
-        df_xlsx = to_excel(df)
-        st.download_button(
-            label="Download Excel File",
-            data=df_xlsx,
-            file_name=f"{brand}_Own_Report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-with col2:
-    if st.button("Sent stock update mail"):
-        brandid = str(brandid)    
-        stock_update_Mail(brandid)    
-with col1:
-     if st.button('📥 Generate Stock Update Report'):
-        brandid = str(brandid) 
-        df = pd.read_sql("""
-                select *from (
-                    select  distinct c.brand,c.dealer, c.location,c.DealerID,c.LocationID,format(a.stockdate,'dd-MMM-yy') stockdate,
-                    DATEDIFF(day,CAST(a.stockdate as date),CAST(getdate() as date) )Day_Difference
-                    from CurrentStock1 a 
-                    inner join CurrentStock2 b on a.tcode=b.stockcode
-                    inner join LocationInfo c on a.LocationID=c.LocationID
-                    WHERE c.Status=1 and c.SharingStatus=1  and c.BrandID=?) as tbl
-                    where tbl.Day_Difference>=5 
-                    """,conn,params=(brandid,))
-         
-        Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=997145252&single=true&output=csv')
+with tab4:
+    if st.button('Show Summary'):
+        Selected_df =loc_df[loc_df['select_location'].isin(Location)][['Brand','Dealer','Location','BrandID','DealerID','LocationID']]
+        Selected_df['Unque_Dealer'] = Selected_df['Brand'] + "_" + Selected_df['Dealer']+"_"+Selected_df['Location']
+        #mail list 
+        Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
         Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-        df['Unque_Dealer'] = df['brand'] + "_" + df['dealer'] + "_" + df['location']
-        merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-        df_xlsx = to_excel(merge_df)
-        st.download_button(
-            label="Download Excel File",
-            data=df_xlsx,
-            file_name=f"{brand}_Stock_update_Report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        merge_df = Selected_df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
+        
+        report_gen =[]
+        for brndid,dlr,locid,uniq in zip(merge_df['BrandID'],merge_df['DealerID'],merge_df['LocationID'],merge_df['Unque_Dealer']):
+            print((brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+            cursor.execute("uad_buyingPotential_automation_SP_Msg_pra_vs_test ?,?,?,?,?,?,?",(brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+            cursor.commit() 
+            report_gen.append(str(locid))
+
+        loc_ids_str = ','.join(report_gen)
+
+        if loc_ids_str:
+            summary_query = f'''
+                select b.Brand,a.* FROM uad_buyingPotential_automation_SP_whatsapp a
+                inner join locationinfo b on a.locationid=b.locationid
+                WHERE CAST(ReportGeneratedOn AS DATE) = CAST(GETDATE() AS DATE)
+                    AND a.LocationID IN ({loc_ids_str})
+            '''
+        
+            bo_data = pd.read_sql_query(summary_query, conn)
+            summary = bo_data.groupby(['DEALER', 'Location']).agg({'PartNumber':'count','Disc_value':'sum','Add_Profit':'sum'}).reset_index()
+            summary.columns=['Dealer', 'Location', 'Part_Count', 'Buying Opp Value (in Rs)','Est Addl Profit (in Rs)']
+            summary['Buying Opp Value (in Rs)']=summary['Buying Opp Value (in Rs)'].astype(int)
+            summary['Est Addl Profit (in Rs)']=summary['Est Addl Profit (in Rs)'].astype(int)    
+            
+            #st.table(summary)
+            if len(summary)>0:
+                st.data_editor(summary,num_rows='dynamic')
+            else:
+                st.warning('Buying Potential not Generated:',icon="ℹ️")   
+            # export data     
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
+            Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
+            bo_data['Unque_Dealer'] = bo_data['Brand']+"_"+bo_data['DEALER']+"_"+bo_data['Location']
+            own_df = bo_data.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
+            df_xlsx = to_excel(own_df)                
+            st.download_button(
+                label="📥Download Bo Excel File",
+                data=df_xlsx,
+                file_name=f"{brand}_Buying_Potential.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            print("No valid Location IDs to query.")
+    # if st.button('Show Summary'):
+    #         Selected_df =loc_df[loc_df['select_location'].isin(Location)][['Brand','Dealer','Location','BrandID','DealerID','LocationID']]
+    #         Selected_df['Unque_Dealer'] = Selected_df['Brand'] + "_" + Selected_df['Dealer']+"_"+Selected_df['Location']
+    #         #mail list 
+    #         Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
+    #         Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
+    #         merge_df = Selected_df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
+            
+    #         report_gen =[]
+    #         for brndid,dlr,locid,uniq in zip(merge_df['BrandID'],merge_df['DealerID'],merge_df['LocationID'],merge_df['Unque_Dealer']):
+    #             print((brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+    #             cursor.execute("delete from uad_buyingPotential_automation_SP_whatsapp where  cast(ReportGeneratedOn as date)= cast(getdate() as date) and locationid=?",(locid))        
+    #             cursor.commit()
+    #             cursor.execute("uad_buyingPotential_automation_SP_Msg_pra_vs_test ?,?,?,?,?,?,?",(brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+    #             cursor.commit() 
+    #             report_gen.append(str(locid))
+
+    #         loc_ids_str = ','.join(report_gen)
+
+    #         if loc_ids_str:
+    #             summary_query = f'''
+    #                 SELECT Dealer, Location, COUNT(PartNumber) AS Part_Count,
+    #                     round(SUM(Mrp_value),0) AS [Buying Opp Value (in Rs)],
+    #                     round(SUM(Add_Profit),0) AS [Est Addl Profit (in Rs)]
+    #                 FROM uad_buyingPotential_automation_SP_whatsapp
+    #                 WHERE CAST(ReportGeneratedOn AS DATE) = CAST(GETDATE() AS DATE)
+    #                     AND LocationID IN ({loc_ids_str})
+    #                 GROUP BY DEALER, Location
+    #             '''
+            
+    #             summary = pd.read_sql_query(summary_query, conn)
+    #             summary['Buying Opp Value (in Rs)']=summary['Buying Opp Value (in Rs)'].astype(int)
+    #             summary['Est Addl Profit (in Rs)']=summary['Est Addl Profit (in Rs)'].astype(int)
+    #             #st.table(summary)
+    #             if len(summary)>0:
+    #                 st.data_editor(summary,num_rows='dynamic')
+    #             else:
+    #                 st.warning('Buying Potential not Generated:',icon="ℹ️")     
+    #         else:
+    #             print("No valid Location IDs to query.")
+
+# Tab 4: Mail Sent
+with tab5:
+    if brand and Dealer and Location:
+        if st.button('Click Here to Sent Report', key=3):
+            Selected_df =loc_df[loc_df['select_location'].isin(Location)][['Brand','Dealer','Location','BrandID','DealerID','LocationID']]
+            Selected_df['Unque_Dealer'] = Selected_df['Brand'] + "_" + Selected_df['Dealer']+"_"+Selected_df['Location']
+            #mail list 
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
+            Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
+            merge_df = Selected_df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='inner')
+        
+            for brndid,dlr,locid,uniq,loc,to,cc in zip(merge_df['BrandID'],merge_df['DealerID'],merge_df['LocationID'],merge_df['Unque_Dealer'],merge_df['Location_x'],merge_df['To'],merge_df['CC']):
+                print((brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+                #delete 
+                cursor.execute("delete from uad_buyingPotential_automation_SP_whatsapp where Locationid =? and cast(ReportGeneratedOn as date)= cast(getdate() as date)",(locid))        
+                cursor.commit()
+                #update
+                cursor.execute("uad_buyingPotential_automation_SP_Msg_pra_vs_test ?,?,?,?,?,?,?",(brndid, dlr, locid, Q1, Q2, GST, OEM_Avg_Margin))
+                cursor.commit() 
+                
+                df2 = pd.read_sql('''select distinct DEALER, Location, PartNumber, PartDescription, Mrp, Rate,     
+                            [3M Avg Sale], [Gainer Free Stock], [Buying Opportunity Qty], Discount,     
+                            Disc_value, Mrp_value, Add_Profit    
+                            from uad_buyingPotential_automation_SP_whatsapp where [Buying Opportunity Qty] >0 and Locationid =? and 
+                            cast(ReportGeneratedOn as date)= cast(getdate() as date)''', conn,params=(locid))              
     
+
+                #variable for data
+                Part_count = df2['PartNumber'].count()
+                Pur_Value = round(df2['Disc_value'].sum(), 0)
+                Pur_Value = int(Pur_Value)
+                Add_Profit = round(df2['Add_Profit'].sum(), 0)
+                Add_Profit = int(Add_Profit)
+                Location_name = loc
+                #Location_name = str(Location_name)
+
+                #save dir
+                #Document_folder= os.environ['USERPRofile']+'\Documents'
+                import pathlib
+                # Use the home directory in a cross-platform way
+                Document_folder = str(pathlib.Path.home() / "Documents")
+                #filename
+                output_excel =Document_folder+"\Buying Potential For " +uniq +" "+datetime.strftime(datetime.now(),'%Y-%m-%d')+ ".xlsx"
+                #df2.head(2)
+                if len(df2) > 0:
+                    t = df2.iloc[0,0]
+                    df2.to_excel(output_excel,index=False)
+                    #excel formating
+                    file_path = output_excel
+                    wb = load_workbook(file_path)
+                    ws = wb.active
+                    ws.alignment = Alignment(horizontal='center', vertical='center')
+                    for cell in ws[1]:
+                        cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+                        cell.font = Font(bold=True)
+                        cell.fill = cell.fill.copy(fgColor='a7a758')
+                        cell.fill = PatternFill('solid', start_color="38ffe9")
+                    max_row = ws.max_row
+                    max_col = ws.max_column
+                    for row in range(1, max_row + 1):
+                        for col in range(1, max_col + 1):
+                            cell = ws.cell(row=row, column=col)
+                            cell.border = Border(left=Side(border_style=BORDER_THIN, color='000000'),
+                                                right=Side(border_style=BORDER_THIN, color='000000'),
+                                                top=Side(border_style=BORDER_THIN, color='000000'),
+                                                bottom=Side(border_style=BORDER_THIN, color='000000'))
+                    wb.save(file_path)
+                    # Add your email sending logic here
+                    import smtplib as s
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from email.mime.base import MIMEBase
+                    from email import encoders
+                    import time
+
+                    # SMTP server setup
+                    ob = s.SMTP('smtp.gmail.com', 587)
+                    ob.ehlo()
+                    ob.starttls()
+                    print("Server connected")
+                    #ob.login('gainer.alerts@sparecare.in', 'fmyclggqzrmkykol')
+                    ob.login('gainer.alerts@sparecare.in','vcdzmksyfnrxzbnk')
+                    #ob.login('scsit.db2@sparecare.in', 'srwbuifkckeimqix')
+                    print("Login Done")
+
+                    # Email details
+                    
+                    subject = 'Addl Profit Opportunity (Buying) :- '+uniq
+                    body = f'''
+                    <p style="font-family: 'Calibri', Times, serif;">Dear Sir,</p>
+                    <p style ="font-family":'Calibri',Times,serif;">Please find attach list of Spare Parts (regularly sold at your dealership)
+                    and is available on Sparecare Gainer Portal at <b>HIGH DISCOUNTS ~ 25-50%</b> </p>
+
+                    <p style ="font-family":'calibri',Times,serif;"><b> 
+                    Location Name           : {Location_name} <br>
+                    Parts Count             : {Part_count} Nos <br>
+                    Parts Discounted Value  : Rs {Pur_Value}/- <br>
+                    Addl. Profit*           : Rs {Add_Profit}/-
+                    </b></p>
+                    <p style="font-family: Calibri, Times, serif; color: blue;">* above OE Margin</p>
+                    
+                    <p style ="font-family":'calibri',Times,serif;">Kindly check the list & place order on Gainer Portal.<br>
+                    For any support required, please revert.
+                    </p>
+
+                    <p style ="font-family:'calibri',Times,serif;">Thanks & Regards <br>
+                    Team Gainer
+                    </p>
+                    '''
+
+
+                    #to_email = filtered_df['To'].iloc[0] 
+                    #cc_emails = filtered_df['CC'].iloc[0]
+                    to_email=to
+                    cc_emails=cc
+                    # cc_emails = cc_emails.replace(' ', '')  
+                    # cc_email_list = cc_emails.split(';') if cc_emails else []
+                    # all_recipients = [to_email] + cc_email_list
+
+                    cc_emails = cc.replace(' ', '')
+                    cc_email_list = cc_emails.split(';') if cc_emails else []
+                    cc_email_list = [email for email in cc_email_list if email]  
+                    
+                    all_recipients = [to_email] + cc_email_list
+                    
+                    #msg['Cc'] = ', '.join(cc_email_list)
+                    
+                    #cc_emails = ['lspsupport@sparecare.in', 'manish.sharma@sparecare.in', 'scope@sparecare.in', 'lalit.kumar@sparecare.in']
+                    #to_email = 'gainer.logistics@gmail.com'
+                    #all_recipients = [to_email] + cc_emails
+                    
+                    # Create a multipart message
+                    msg = MIMEMultipart()
+                    msg['From'] = 'gainer.alerts@sparecare.in'
+                    msg['To'] = to_email
+                    msg['Cc'] = ', '.join(cc_email_list)
+                    msg['Subject'] = subject
+
+                    msg.attach(MIMEText(body, 'html'))
+
+                    # Open the attachment file and attach it to the email
+                    filename = file_path
+                    with open(filename, "rb") as attachment:
+                        part = MIMEBase('application', 'octet-stream')
+                        part.set_payload(attachment.read())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f"attachment; filename= {filename.split('/')[-1]}")
+                        msg.attach(part)
+
+                    # Convert the message to a string and send it
+                    text = msg.as_string()
+                    ob.sendmail('gainer.alerts@sparecare.in', all_recipients, text)
+                    time.sleep(5)
+                    ob.quit()
+                    print("Email sent successfully!")
+                    st.success("Report sent successfully!" +uniq)
+                   # st.success(f'Report sent successfully!: brand :{brd},Dealer :{dlrn},Location : {locn}')
+
+                else:
+                    st.warning('Report Not Genarate for :-'+uniq)    
+    else:
+        st.warning('Error: Select Brand, Dealer, and Location!')        
 
 
 cursor.close()
