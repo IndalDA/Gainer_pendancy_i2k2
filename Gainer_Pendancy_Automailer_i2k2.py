@@ -39,18 +39,34 @@ def get_db_connection():
 conn = get_db_connection()
 
 # Fetching dropdown data
+# # Brand Dropdown
+# brnd = pd.read_sql_query("SELECT vcbrand FROM brand_master", conn)
+# brand_list = ["Select Brand"] + brnd['vcbrand'].tolist()
+# brand = st.multiselect(label="Brand", options=brand_list)
+
+# #brnadid
+# try:
+#     bigid =pd.read_sql_query("""select bigid from Brand_Master where vcbrand=?""",conn,params=(brand))
+#     brandid = bigid.iloc[0][0]
+# #    st.write(brandid)
+# except:
+#     pass    
+
 # Brand Dropdown
 brnd = pd.read_sql_query("SELECT vcbrand FROM brand_master", conn)
 brand_list = ["Select Brand"] + brnd['vcbrand'].tolist()
 brand = st.multiselect(label="Brand", options=brand_list)
+st.write("Selected brands:", brand)
 
-#brnadid
-try:
-    bigid =pd.read_sql_query("""select bigid from Brand_Master where vcbrand=?""",conn,params=(brand))
-    brandid = bigid.iloc[0][0]
-#    st.write(brandid)
-except:
-    pass    
+if brand:  # only proceed if at least one brand is selected
+    placeholders = ', '.join(['?'] * len(brand))
+    query = f"SELECT bigid, vcbrand FROM Brand_Master WHERE vcbrand IN ({placeholders})"
+    
+    try:
+        bigids = pd.read_sql_query(query, conn, params=brand)
+        st.write("Brand IDs:", bigids)
+    except Exception as e:
+        st.error(f"Error fetching brand IDs: {e}")
 
 # Dealer Dropdown
 dealer = pd.read_sql_query("SELECT distinct Dealer FROM locationinfo WHERE brand=?", conn, params=(brand,))
