@@ -42,7 +42,7 @@ conn = get_db_connection()
 # Brand Dropdown
 brnd = pd.read_sql_query("SELECT vcbrand FROM brand_master", conn)
 brand_list = ["Select Brand"] + brnd['vcbrand'].tolist()
-brand = st.selectbox(label="Brand", options=brand_list)
+brand = st.multiselect(label="Brand", options=brand_list)
 
 #brnadid
 try:
