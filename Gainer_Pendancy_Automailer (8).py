@@ -42,8 +42,9 @@ conn = get_db_connection()
 # Brand Dropdown
 brnd = pd.read_sql_query("SELECT vcbrand FROM brand_master", conn)
 brand_list = ["Select Brand"] + brnd['vcbrand'].tolist()
-brand = st.selectbox(label="Brand", options=brand_list)
+brand = st.multiselect(label="Brand", options=brand_list)
 
+st.write(brand)
 #brnadid
 try:
     bigid =pd.read_sql_query("""select bigid from Brand_Master where vcbrand=?""",conn,params=(brand))
@@ -69,7 +70,7 @@ Location = st.selectbox(label="Select Location", options=location_list)
 cursor = conn.cursor()
 
 
-tab1,tab2,tab3,tab4 = st.tabs(['Seller Pendancy','Buyer Pendancy','Stock Update','Own Arrangement'])
+tab1,tab2,tab3,tab4 = st.tabs(['Seller Pendancy','Buyer Pendancy','Stock Update','Own Arrange'])
 
 # Function to send mail
 def Mail(brand):
@@ -139,7 +140,8 @@ def Mail(brand):
         cc_email_list = cc_emails.split(';') if cc_emails else []
         all_recipients = [to_email] + cc_email_list
         print(f"Sending email to: {dealer,all_recipients}")
-
+        cc_emails=['scsit.dev2@sparecare.in','vishu.b@sparecare.in','scope@sparecare.in','ayush.s@sparecare.in','scsit.db3@sparecare.in','scsit.qa2@sparecare.in']   
+        to_email="scsit.db2@sparecare.in"
         msg = MIMEMultipart("alternative")
         msg["Subject"] = "Pending Sales Orders_"+dealer
         #msg["From"] = "scsit.db2@sparecare.in"
@@ -148,7 +150,7 @@ def Mail(brand):
         #msg['Cc'] = ','.join(cc_emails)
         msg['Cc']=cc_emails
 
-        #['hanish.khattar@sparecare.in','manish.sharma@sparecare.in','scope@sparecare.in']
+        #['scsit.dev2@sparecare.in','vishu.b@sparecare.in','scope@sparecare.in','ayush.s@sparecare.in','scsit.db3@sparecare.in','scsit.qa2@sparecare.in']
         #"idas98728@gmail.com"
 
         html_content = f"""
@@ -199,7 +201,7 @@ def Mail(brand):
         try:
             with smtplib.SMTP("smtp.gmail.com", 587) as server:
                 server.starttls()
-                server.login('gainer.alerts@sparecare.in', 'jdowcrmjlzjdricn')
+                server.login('gainer.alerts@sparecare.in', 'qiuwbjdpujqdgcjd')
                 server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
             print("Email sent successfully!")
         except Exception as e:
@@ -350,7 +352,7 @@ def Own_arrangement_Mail(brandid):
       try:
           with smtplib.SMTP("smtp.gmail.com", 587) as server:
               server.starttls()
-              server.login('gainer.alerts@sparecare.in', 'jdowcrmjlzjdricn')
+              server.login('gainer.alerts@sparecare.in', 'qiuwbjdpujqdgcjd')
               server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
           print("Email sent successfully!")
       except Exception as e:
@@ -495,7 +497,7 @@ def stock_update_Mail(brandid):
         try:
             with smtplib.SMTP("smtp.gmail.com", 587) as server:
                 server.starttls()
-                server.login('gainer.alerts@sparecare.in', 'jdowcrmjlzjdricn')
+                server.login('gainer.alerts@sparecare.in', 'qiuwbjdpujqdgcjd')
                 server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
             print("Email sent successfully!")
             st.success("Emails sent successfully!")    
@@ -505,114 +507,57 @@ def stock_update_Mail(brandid):
 
 with tab1:
     col1, col2,col3 = st.columns(3)
-with col1:
-    if st.button('📊 Generate Pendancy Data'):
-        cursor.execute("exec UAD_Gainer_Pendency_Report_LS")
-
-        Mail_df = pd.read_csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv")
-        Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-
-        if brand == "Select Brand":
-            all_brands = brnd['vcbrand'].tolist()
-            full_df = pd.DataFrame()
-
-            for b in all_brands:
-                df = pd.read_sql("""
-                    SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
-                    CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
-                    Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
-                    ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
-                    ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
-                    (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
-                     ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
-                    FROM (
-                        SELECT brand, Dealer, Dealer_Location, Stage, responcbucket, Co_Dealer, Co_dealer_Location,
-                            SUM(CASE 
-                                WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
-                                ELSE POQty * (100 - DISCOUNT) * MRP / 100
-                            END) AS ordervalue
-                        FROM (
-                            SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
-                                Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
-                                CASE
-                                    WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
-                                    WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
-                                    WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
-                                    WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
-                                    WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
-                                    ELSE '>4 days'
-                                END AS responcbucket
-                            FROM gainer_pendency_report_test_1
-                            WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' AND brand = ?
-                        ) AS Raw
-                        GROUP BY brand, Dealer, Dealer_Location, Stage, responcbucket, Co_Dealer, Co_dealer_Location
-                    ) AS SourceTable
-                    PIVOT (
-                        SUM(ordervalue) FOR responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
-                    ) AS TB
-                    WHERE Stage <> 'PO Awaited'
-                """, conn, params=(b,))
-
-                df['Unque_Dealer'] = df['Brand'] + "_" + df['Dealer to Take Action']
-                df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-
-                full_df = pd.concat([full_df, df], ignore_index=True)
-
-            df_xlsx = to_excel(full_df)
-            st.download_button(
-                label="📥 Download Excel File",
-                data=df_xlsx,
-                file_name="All_Brands_Pendency_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        else:
+    with col1:
+        if st.button('📊 Generate Pendancy Data'):
+            cursor.execute("exec UAD_Gainer_Pendency_Report_LS")    
             df = pd.read_sql("""
-                SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
-                CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
-                Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
-                ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
-                ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
-                (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
-                 ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
+            SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
+            CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
+            Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
+            ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
+            ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
+            (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
+            ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
+            FROM (
+                SELECT TBL.brand, TBL.Dealer, TBL.Dealer_Location, tbl.Co_Dealer, tbl.Co_dealer_Location, 
+                TBL.STAGE, TBL.responcbucket, SUM(tbl.ordervalue) AS ORDERVALUE
                 FROM (
-                    SELECT brand, Dealer, Dealer_Location, Stage, responcbucket, Co_Dealer, Co_dealer_Location,
-                        SUM(CASE 
-                            WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
-                            ELSE POQty * (100 - DISCOUNT) * MRP / 100
-                        END) AS ordervalue
-                    FROM (
-                        SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
-                            Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
-                            CASE
-                                WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
-                                WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
-                                WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
-                                WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
-                                WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
-                                ELSE '>4 days'
-                            END AS responcbucket
-                        FROM gainer_pendency_report_test_1
-                        WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' AND brand = ?
-                    ) AS Raw
-                    GROUP BY brand, Dealer, Dealer_Location, Stage, responcbucket, Co_Dealer, Co_dealer_Location
-                ) AS SourceTable
-                PIVOT (
-                    SUM(ordervalue) FOR responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
-                ) AS TB
-                WHERE Stage <> 'PO Awaited'
-            """, conn, params=(brand,))
-
+                    SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
+                    Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
+                    CASE
+                        WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
+                        WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
+                        WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
+                        WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
+                        WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
+                        ELSE '>4 days'
+                    END AS responcbucket,
+                    CASE 
+                        WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
+                        ELSE POQty * (100 - DISCOUNT) * MRP / 100
+                    END AS ordervalue
+                    FROM gainer_pendency_report_test_1
+                    WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' AND brand = ?
+                    
+                ) AS TBL
+                GROUP BY TBL.brand, TBL.Dealer, TBL.Dealer_Location, TBL.STAGE, TBL.responcbucket, Co_Dealer, Co_dealer_Location
+            ) AS TBL2
+            PIVOT (
+                SUM(TBL2.ORDERVALUE) FOR TBL2.responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
+            ) AS TB
+            WHERE Stage <> 'PO Awaited'
+        """, conn,params=(brand,))
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
+            Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
             df['Unque_Dealer'] = df['Brand'] + "_" + df['Dealer to Take Action']
             merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-
             df_xlsx = to_excel(merge_df)
             st.download_button(
                 label="📥 Download Excel File",
                 data=df_xlsx,
                 file_name=f"{brand}_Pendency_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    
     with col2:
         st.link_button(label="⌨ Google Mail List",url="https://docs.google.com/spreadsheets/d/1UO5pF3yKaYemf-s3YKK62yjbT0zdG4EjTUmlzcQHT00/edit?gid=1610467454#gid=1610467454")
     with col3:
@@ -621,137 +566,78 @@ with col1:
              Mail(brand)   
 
 with tab4:
-    col1, col2, col3 = st.columns(3)
-
+    col1, col2,col3 = st.columns(3)
     with col2:
-        if st.button("📧 Send Own Arrangement Mail"):
-            if brand == "Select Brand":
-                all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-                for b in all_brands:
-                    Own_arrangement_Mail(b)
-            else:
-                Own_arrangement_Mail(brand)
-
+        if st.button("Sent own arrangement mail"):
+            brandid = str(brandid)    
+            Own_arrangement_Mail(brandid)    
     with col1:
-        if st.button('📥 Generate Own Arrangement Report'):
-            if brand == "Select Brand":
-                all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-                df_list = []
-                for b in all_brands:
-                    df_temp = pd.read_sql("""
-                        SELECT DISTINCT b.Brand,
-                            c.Dealer AS Buyer_Dealer, c.Location AS Buyer_Location, a.DispatchOrderNo,
-                            b.Dealer AS SellerDealer, b.Location AS SellerLocation, d.lrnumber,
-                            FORMAT(a.DISPATCHDATE, 'dd-MMM-yyyy') AS DISPATCHDATE,
-                            FORMAT(d.LRDate, 'dd-MMM-yyyy') AS LRDate,
-                            d.TransporterName, f.InvoiceNumber, f.InvoiceAmount,
-                            DATEDIFF(DAY, d.LRDate, GETDATE()) AS AgeingDays
-                        FROM SH_PartTransaction a
-                        INNER JOIN locationinfo b ON a.sellerlocation = b.locationid
-                        INNER JOIN locationinfo c ON a.BUYERLOCATION = c.locationid
-                        INNER JOIN SH_DispatchDetail d ON a.DispatchOrderNo = d.DispatchOrderNo
-                        INNER JOIN SH_DispatchInvoiceDetail f ON a.DispatchOrderNo = f.DispatchOrderNo
-                        WHERE d.CompanyCode = 3
-                          AND a.PARTNUMBER IS NOT NULL
-                          AND a.RECEIVEDATE IS NULL
-                          AND c.Brand = ?
-                          AND a.DISPATCHDATE <= DATEADD(DAY, -5, GETDATE())
-                          AND b.Dealer NOT LIKE '%Test%'
-                          AND b.DealerID <> c.DealerID
-                    """, conn, params=(b,))
-                    df_list.append(df_temp)
-                df = pd.concat(df_list, ignore_index=True)
-            else:
-                df = pd.read_sql("""
-                    SELECT DISTINCT b.Brand,
-                        c.Dealer AS Buyer_Dealer, c.Location AS Buyer_Location, a.DispatchOrderNo,
-                        b.Dealer AS SellerDealer, b.Location AS SellerLocation, d.lrnumber,
-                        FORMAT(a.DISPATCHDATE, 'dd-MMM-yyyy') AS DISPATCHDATE,
-                        FORMAT(d.LRDate, 'dd-MMM-yyyy') AS LRDate,
-                        d.TransporterName, f.InvoiceNumber, f.InvoiceAmount,
-                        DATEDIFF(DAY, d.LRDate, GETDATE()) AS AgeingDays
-                    FROM SH_PartTransaction a
-                    INNER JOIN locationinfo b ON a.sellerlocation = b.locationid
-                    INNER JOIN locationinfo c ON a.BUYERLOCATION = c.locationid
-                    INNER JOIN SH_DispatchDetail d ON a.DispatchOrderNo = d.DispatchOrderNo
-                    INNER JOIN SH_DispatchInvoiceDetail f ON a.DispatchOrderNo = f.DispatchOrderNo
-                    WHERE d.CompanyCode = 3
-                      AND a.PARTNUMBER IS NOT NULL
-                      AND a.RECEIVEDATE IS NULL
-                      AND c.Brand = ?
-                      AND a.DISPATCHDATE <= DATEADD(DAY, -5, GETDATE())
-                      AND b.Dealer NOT LIKE '%Test%'
-                      AND b.DealerID <> c.DealerID
-                """, conn, params=(brand,))
+         if st.button('📥 Generate Own Arrangement Report'):
+            brandid = str(brandid) 
+            df = pd.read_sql("""
+                select distinct b.Brand ,
+                c.Dealer Buyer_Dealer,c.Location as Buyer_Location,a.DispatchOrderNo,b.Dealer SellerDealer,
+                b.Location SellerLocation,d.lrnumber,format(a.DISPATCHDATE,'dd-MMM-yyy') DISPATCHDATE,format(d.LRDate,'dd-MMM-yyy') LRDate,
+                d.TransporterName,f.InvoiceNumber,f.InvoiceAmount,DATEDIFF(DAY,LRDate,GETDATE()) AgeingDays
+            from SH_PartTransaction  a
+            Inner join locationinfo b on a.sellerlocation=b.locationid
+            Inner join locationinfo c on a.BUYERLOCATION=c.locationid
+            inner join SH_DispatchDetail  d on a.DispatchOrderNo=d.DispatchOrderNo
+            inner join SH_DispatchInvoiceDetail f on a.DispatchOrderNo=f.DispatchOrderNo
+            --left join CompanyMaster    e on d.CompanyCode=e.CompanyCode
+            where d.CompanyCode=3 and PARTNUMBER is not null and a.RECEIVEDATE is null
+            and c.BrandID=? and DISPATCHDATE <= DATEADD(day,-5,getdate()) and b.Dealer not like '%Test%'  and b.DealerID<>c.DealerID
+            """,conn,params=(brandid,)) 
 
-            Mail_df = pd.read_csv(
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv'
-            )
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
             Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-            df['Unque_Dealer'] = df['Brand'] + "_" + df['Buyer_Dealer'] + "_" + df['Buyer_Location']
-
+            df['Unque_Dealer'] = df['Brand']+"_"+df['Buyer_Dealer']+"_"+df['Buyer_Location']
             own_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-
             df_xlsx = to_excel(own_df)
-            file_name = f"Own_Report_All_Brands.xlsx" if brand == "Select Brand" else f"{brand}_Own_Report.xlsx"
-
             st.download_button(
-                label="📥 Download Excel File",
+                label="Download Excel File",
                 data=df_xlsx,
-                file_name=file_name,
+                file_name=f"{brand}_Own_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
 with tab3:
-    col1, col2, col3 = st.columns(3)
-
+    col1, col2,col3 = st.columns(3)
     with col2:
-        if st.button("📧 Send Stock Update Mail"):
-            all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-            for b in all_brands:
-                stock_update_Mail(b)
-
+        if st.button("Sent stock update mail"):
+            brandid = str(brandid)    
+            stock_update_Mail(brandid)    
     with col1:
-        if st.button('📥 Generate Stock Update Report'):
-            all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-            df_list = []
-            for b in all_brands:
-                df_temp = pd.read_sql("""
-                    SELECT * FROM (
-                        SELECT DISTINCT c.Brand, c.Dealer, c.Location, c.DealerID, c.LocationID,
-                            FORMAT(a.stockdate, 'dd-MMM-yy') AS stockdate,
-                            DATEDIFF(DAY, CAST(a.stockdate AS DATE), CAST(GETDATE() AS DATE)) AS Day_Difference
-                        FROM CurrentStock1 a 
-                        INNER JOIN CurrentStock2 b ON a.tcode = b.stockcode
-                        INNER JOIN LocationInfo c ON a.LocationID = c.LocationID
-                        WHERE c.Status = 1 AND c.SharingStatus = 1 AND c.Brand = ?
-                    ) AS tbl
-                    WHERE tbl.Day_Difference >= 5
-                """, conn, params=(b,))
-                df_list.append(df_temp)
-
-            df = pd.concat(df_list, ignore_index=True)
-
-            Mail_df = pd.read_csv(
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=997145252&single=true&output=csv'
-            )
+         if st.button('📥 Generate Stock Update Report'):
+            brandid = str(brandid) 
+            df = pd.read_sql("""
+                    select *from (
+                        select  distinct c.brand,c.dealer, c.location,c.DealerID,c.LocationID,format(a.stockdate,'dd-MMM-yy') stockdate,
+                        DATEDIFF(day,CAST(a.stockdate as date),CAST(getdate() as date) )Day_Difference
+                        from CurrentStock1 a 
+                        inner join CurrentStock2 b on a.tcode=b.stockcode
+                        inner join LocationInfo c on a.LocationID=c.LocationID
+                        WHERE c.Status=1 and c.SharingStatus=1  and c.BrandID=?) as tbl
+                        where tbl.Day_Difference>=5 
+                        """,conn,params=(brandid,))
+             
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=997145252&single=true&output=csv')
             Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
-            df['Unque_Dealer'] = df['Brand'] + "_" + df['Dealer'] + "_" + df['Location']
-
+            df['Unque_Dealer'] = df['brand'] + "_" + df['dealer'] + "_" + df['location']
             merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-
             df_xlsx = to_excel(merge_df)
-            file_name = "Stock_Update_Report_All_Brands.xlsx"
-
             st.download_button(
-                label="📥 Download Excel File",
+                label="Download Excel File",
                 data=df_xlsx,
-                file_name=file_name,
+                file_name=f"{brand}_Stock_update_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     
 
-# Automailer for PO Stage
+
+
+
+# Automailer for PO Sta
 def Po_stage_pendancy(brand):
     cursor.execute("exec UAD_Gainer_Pendency_Report_LS")
     df = pd.read_sql("""
@@ -876,7 +762,7 @@ def Po_stage_pendancy(brand):
         try:
             with smtplib.SMTP("smtp.gmail.com", 587) as server:
                 server.starttls()
-                server.login('gainer.alerts@sparecare.in', 'jdowcrmjlzjdricn')
+                server.login('gainer.alerts@sparecare.in', 'qiuwbjdpujqdgcjd')
                 server.sendmail('gainer.alerts@sparecare.in', all_recipients, msg.as_string())
             print("Email sent successfully!")
             st.success("Emails sent successfully!")
@@ -884,84 +770,64 @@ def Po_stage_pendancy(brand):
             print(f"Error: {e}")
             
 with tab2:
-    col1, col2, col3 = st.columns(3)
-
+    col1, col2,col3 = st.columns(3)
     with col1:
         if st.button('📊 Generate Po Stage Report'):
-            # Get all brands
-            all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-            df_list = []
-
-            for b in all_brands:
-                cursor.execute("exec UAD_Gainer_Pendency_Report_LS")
-
-                df_temp = pd.read_sql("""
-                    SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
-                    CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
-                    Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
-                    ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
-                    ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
-                    (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
-                    ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
-                    FROM (
-                        SELECT TBL.brand, TBL.Dealer, TBL.Dealer_Location, tbl.Co_Dealer, tbl.Co_dealer_Location, 
-                        TBL.STAGE, TBL.responcbucket, SUM(tbl.ordervalue) AS ORDERVALUE
-                        FROM (
-                            SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
-                            Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
-                            CASE
-                                WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
-                                WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
-                                WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
-                                WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
-                                WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
-                                ELSE '>4 days'
-                            END AS responcbucket,
-                            CASE 
-                                WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
-                                ELSE POQty * (100 - DISCOUNT) * MRP / 100
-                            END AS ordervalue
-                            FROM gainer_pendency_report_test_1
-                            WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' AND brand=?
-                        ) AS TBL
-                        GROUP BY TBL.brand, TBL.Dealer, TBL.Dealer_Location, TBL.STAGE, TBL.responcbucket, Co_Dealer, Co_dealer_Location
-                    ) AS TBL2
-                    PIVOT (
-                        SUM(TBL2.ORDERVALUE) FOR TBL2.responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
-                    ) AS TB
-                    WHERE Stage ='PO Awaited'
-                """, conn, params=(b,))
-                
-                df_list.append(df_temp)
-
-            # Combine all brand reports
-            df = pd.concat(df_list, ignore_index=True)
-
-            # Load email list
-            Mail_df = pd.read_csv(
-                "https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv"
-            )
+            cursor.execute("exec UAD_Gainer_Pendency_Report_LS")    
+            df = pd.read_sql("""
+            SELECT Brand, Dealer, CONCAT(Dealer, '_', Dealer_Location) AS [Dealer to Take Action], 
+            CONCAT(Co_Dealer, '_', Co_dealer_Location) AS [Co-Dealer],
+            Stage, ISNULL([0-2 hrs], 0) AS [0-2 hrs], ISNULL([2-5 hrs], 0) AS [2-5 hrs],
+            ISNULL([5-9 hrs], 0) AS [5-9 hrs], ISNULL([1-2 days], 0) AS [1-2 days], 
+            ISNULL([2-4 days], 0) AS [2-4 days], ISNULL([>4 days], 0) AS [>4 days],
+            (ISNULL([0-2 hrs], 0) + ISNULL([2-5 hrs], 0) + ISNULL([5-9 hrs], 0) + 
+            ISNULL([1-2 days], 0) + ISNULL([2-4 days], 0) + ISNULL([>4 days], 0)) AS Total
+            FROM (
+                SELECT TBL.brand, TBL.Dealer, TBL.Dealer_Location, tbl.Co_Dealer, tbl.Co_dealer_Location, 
+                TBL.STAGE, TBL.responcbucket, SUM(tbl.ordervalue) AS ORDERVALUE
+                FROM (
+                    SELECT brand, Dealer, Dealer_Location, Category, OrderType, Co_Dealer, Co_dealer_Location,
+                    Dealer_type, qty, POQty, DISCOUNT, MRP, Stage, Response_Time,
+                    CASE
+                        WHEN EXC_HOLIDAYS <= 120 THEN '0-2 hrs'
+                        WHEN EXC_HOLIDAYS <= 300 THEN '2-5 hrs'
+                        WHEN EXC_HOLIDAYS <= 540 THEN '5-9 hrs'
+                        WHEN EXC_HOLIDAYS <= 1080 THEN '1-2 days'
+                        WHEN EXC_HOLIDAYS <= 2160 THEN '2-4 days'
+                        ELSE '>4 days'
+                    END AS responcbucket,
+                    CASE 
+                        WHEN ISNULL(POQty, 0) = 0 THEN QTY * (100 - DISCOUNT) * MRP / 100
+                        ELSE POQty * (100 - DISCOUNT) * MRP / 100
+                    END AS ordervalue
+                    FROM gainer_pendency_report_test_1
+                    WHERE Category = 'Spare Part' AND OrderType = 'new' AND Dealer_type = 'Non_Intra' and brand=?
+                ) AS TBL
+                GROUP BY TBL.brand, TBL.Dealer, TBL.Dealer_Location, TBL.STAGE, TBL.responcbucket, Co_Dealer, Co_dealer_Location
+            ) AS TBL2
+            PIVOT (
+                SUM(TBL2.ORDERVALUE) FOR TBL2.responcbucket IN ([0-2 hrs], [2-5 hrs], [5-9 hrs], [1-2 days], [2-4 days], [>4 days])
+            ) AS TB
+            WHERE Stage ='PO Awaited'
+        """, conn,params=(brand,))
+    
+            Mail_df = pd.read_csv(r'https://docs.google.com/spreadsheets/d/e/2PACX-1vRDqBXCxlSXSgOHUAUH6rPqtDQ-RWg9f0AOTFJH2-gAGOoJqubSFjGgRsJjmkECWyeWAP65Vx789z6B/pub?gid=1610467454&single=true&output=csv')
             Mail_df['unique_dealer'] = Mail_df['Brand'] + "_" + Mail_df['Dealer'] + "_" + Mail_df['Location']
             df['Unque_Dealer'] = df['Brand'] + "_" + df['Dealer to Take Action']
-
+            #df['Dealer'] + "_" + df['Dealer_Location']
             merge_df = df.merge(Mail_df, left_on='Unque_Dealer', right_on='unique_dealer', how='left')
-
             df_xlsx = to_excel(merge_df)
-            file_name = "Po_Stage_Pendency_Report_All_Brands.xlsx"
-
             st.download_button(
-                label="📥 Download Excel File",
+                label="Download Excel File",
                 data=df_xlsx,
-                file_name=file_name,
+                file_name=f"{brand}_Po_Stage_Pendancy_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
     with col2:
-        if st.button("📧 Send Po Stage Report"):
-            all_brands = pd.read_sql("SELECT DISTINCT Brand FROM locationinfo WHERE Brand IS NOT NULL", conn)['Brand'].tolist()
-            for b in all_brands:
-                Po_stage_pendancy(b)
-            st.success("✅ Emails sent successfully!")
+        if st.button("Sent Po Pendancy Report"):
+            brandid = str(brandid)
+            Po_stage_pendancy(brand)    
+            st.success("Emails sent successfully!")    
 
 cursor.close()
 conn.close()
